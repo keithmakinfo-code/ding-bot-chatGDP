@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>钉钉问答入口｜ChatGPT 中转</title>
+  <style>
+    :root { --w: 680px; }
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,PingFang SC,Helvetica,Arial,sans-serif;margin:0;background:#f7f7fb;color:#111}
+    .wrap{max-width:var(--w);margin:6vh auto;padding:24px}
+    .card{background:#fff;border-radius:16px;box-shadow:0 6px 24px rgba(0,0,0,.06);padding:24px}
+    h1{font-size:22px;margin:0 0 12px}
+    p.tip{margin:0 0 16px;color:#555}
+    label{display:block;font-size:14px;margin:14px 0 6px;color:#333}
+    input,textarea,button{width:100%;font-size:16px;border-radius:10px;border:1px solid #ddd;box-sizing:border-box}
+    textarea{min-height:120px;padding:12px;resize:vertical}
+    input{padding:10px}
+    .row{display:flex;gap:12px}
+    .row .col{flex:1}
+    button{background:#111;color:#fff;border:none;padding:12px;margin-top:12px;cursor:pointer}
+    button[disabled]{opacity:.6;cursor:not-allowed}
+    .muted{font-size:13px;color:#666;margin-top:8px}
+    .ok{color:#0a7f42}
+    .err{color:#b00020;white-space:pre-wrap}
+    .ans{margin-top:14px;padding:12px;border:1px dashed #e0e0e0;border-radius:10px;background:#fafafa;white-space:pre-wrap}
+    .footer{margin-top:24px;font-size:12px;color:#888;text-align:center}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1>钉钉群提问入口</h1>
+      <p class="tip">在这里输入问题，系统会调用 ChatGPT，并将答案<strong>自动发送到群里</strong>（同时下方也会显示结果）。</p>
+
+      <form id="form">
+        <div class="row">
+          <div class="col">
+            <label>你的称呼（可选）</label>
+            <input id="name" placeholder="例如：麦导 / 小王 / 区队学员" />
+          </div>
+          <div class="col">
+            <label>是否在群里标注你的称呼</label>
+            <select id="tag">
+              <option value="yes">是（建议）</option>
+              <option value="no">否</option>
+            </select>
+          </div>
+        </div>
+
+        <label>问题内容</label>
+        <textarea id="q" placeholder="请输入你想问的问题……" required></textarea>
+
+        <button id="btn" type="submit">发送到群里</button>
+        <div id="status" class="muted">状态：待输入</div>
+        <div id="ans" class="ans" style="display:none;"></div>
+        <div id="err" class="muted err" style="display:none;"></div>
+      </form>
+
+      <div class="footer">说明：本页与同域名下的 <code>/api/ask</code> 通信（同源，无 CORS 问题）。</div>
+    </div>
+  </div>
+
+  <script>
+    // 可选：从 URL ?p=xxx 预填问题
+    const url = new URL(window.location.href);
+    const preset = url.searchParams.get('p');
+    if (preset) document.getElementById('q').value = preset;
+
+    const form = document.getElementById('form');
+    const btn  = document.getElementById('btn');
+    const qEl  = document.getElementById('q');
+    const nameEl = document.getElementById('name');
+    const tagEl  = document.getElementById('tag');
+    const statusEl = document.getElementById('status');
+    const ansEl = document.getElementById('ans');
+    const errEl = document.getElementById('err');
+
+    function setBusy(b){
+      btn.disabled = b;
+      btn.textContent = b ? '发送中…' : '发送到群里';
+    }
+
+    form.addEventListener('submit', async (e)=>{
+      e.preventDefault();
+      ansEl.style.display = 'none';
+      errEl.style.display = 'none';
+
+      const q = qEl.value.trim();
+      if (!q) { qEl.focus(); return; }
+
+      const name = nameEl.value.trim();
+      const withTag = tagEl.value === 'yes';
+      const prompt = name && withTag ? `来自【${name}】的问题：\n${q}` : q;
+
+      setBusy(true);
+      statusEl.textContent = '状态：正在向 ChatGPT 请求，并发送到钉钉群…';
+
+      try {
+        const res = await fetch('/api/ask', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prompt })
+        });
+        const data = await res.json().catch(()=>({}));
+
+        if (res.ok && data && (data.ok || data.answer)) {
+          statusEl.innerHTML = '状态：<span class="ok">已发送到群里</span> ✅';
+          ansEl.style.display = 'block';
+          ansEl.textContent = data.answer || '（已发送到群，页面无返回文本）';
+        } else {
+          throw new Error(JSON.stringify(data || {}));
+        }
+      } catch (err) {
+        statusEl.textContent = '状态：发送失败';
+        errEl.style.display = 'block';
+        // 若配额不足或签名问题等，后端会返回 detail 字段
+        const msg = String(err?.message || err);
+        errEl.textContent = '错误信息：' + msg.replace(/^Error:\s*/,'');
+      } finally {
+        setBusy(false);
+      }
+    });
+  </script>
+</body>
+</html>
